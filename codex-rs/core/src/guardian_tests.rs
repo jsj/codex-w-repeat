@@ -365,7 +365,7 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
         &[("Guardian Review Request", &request)],
         &ContextSnapshotOptions::default(),
     );
-    let snapshot_text = format!("{snapshot}");
+    let snapshot_text = snapshot.to_string();
     with_settings!({ omit_expression => true }, {
         run_snapshot_assert(
             ("guardian_review_request_layout", snapshot_text.as_str()).into(),
