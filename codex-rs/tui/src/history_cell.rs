@@ -859,15 +859,21 @@ pub fn new_approval_decision_cell(
         },
         Denied => {
             let snippet = Span::from(exec_snippet(&command)).dim();
-            (
-                "✗ ".red(),
-                vec![
+            let summary = match actor {
+                ApprovalDecisionActor::User => vec![
                     actor.subject().into(),
                     "did not approve".bold(),
                     " codex to run ".into(),
                     snippet,
                 ],
-            )
+                ApprovalDecisionActor::Guardian => vec![
+                    "Sandbox escalation ".into(),
+                    "denied".bold(),
+                    " for codex to run ".into(),
+                    snippet,
+                ],
+            };
+            ("✗ ".red(), summary)
         }
         Abort => {
             let snippet = Span::from(exec_snippet(&command)).dim();
@@ -910,9 +916,9 @@ pub fn new_guardian_denied_patch_request(
     change_count: usize,
 ) -> Box<dyn HistoryCell> {
     let mut summary = vec![
-        ApprovalDecisionActor::Guardian.subject().into(),
-        "did not approve".bold(),
-        " codex to apply ".into(),
+        "Sandbox escalation ".into(),
+        "denied".bold(),
+        " for codex to apply ".into(),
     ];
     if files.len() == 1 {
         summary.push("a patch touching ".into());
@@ -932,9 +938,9 @@ pub fn new_guardian_denied_patch_request(
 
 pub fn new_guardian_denied_action_request(summary: String) -> Box<dyn HistoryCell> {
     let line = Line::from(vec![
-        ApprovalDecisionActor::Guardian.subject().into(),
-        "did not approve".bold(),
-        " ".into(),
+        "Sandbox escalation ".into(),
+        "denied".bold(),
+        " for ".into(),
         Span::from(summary).dim(),
     ]);
     Box::new(PrefixedWrappedHistoryCell::new(line, "✗ ".red(), "  "))
