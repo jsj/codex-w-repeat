@@ -340,12 +340,11 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
     assert_eq!(assessment.risk_score, 35);
 
     let request = request_log.single_request();
-    let snapshot = context_snapshot::format_labeled_requests_snapshot(
+    let snapshot_text = context_snapshot::format_labeled_requests_snapshot(
         "Guardian review request layout",
         &[("Guardian Review Request", &request)],
         &ContextSnapshotOptions::default(),
     );
-    let snapshot_text = snapshot.to_string();
     with_settings!({ omit_expression => true }, {
         run_snapshot_assert(
             ("guardian_review_request_layout", snapshot_text.as_str()).into(),
