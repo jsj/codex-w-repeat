@@ -18,15 +18,14 @@ use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
-use insta::_function_name;
-use insta::_get_workspace_root;
-use insta::_macro_support::assert_snapshot as run_snapshot_assert;
-use insta::with_settings;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+const GUARDIAN_REVIEW_REQUEST_LAYOUT_SNAPSHOT: &str =
+    include_str!("snapshots/codex_core__guardian__tests__guardian_review_request_layout.snap");
 
 #[test]
 fn build_guardian_transcript_keeps_original_numbering() {
@@ -345,22 +344,10 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
         &[("Guardian Review Request", &request)],
         &ContextSnapshotOptions::default(),
     );
-    with_settings!({ omit_expression => true }, {
-        run_snapshot_assert(
-            ("guardian_review_request_layout", snapshot_text.as_str()).into(),
-            _get_workspace_root!().as_path(),
-            _function_name!(),
-            module_path!(),
-            "core/src/guardian_tests.rs",
-            line!(),
-            stringify!(context_snapshot::format_labeled_requests_snapshot(
-                "Guardian review request layout",
-                &[("Guardian Review Request", &request)],
-                &ContextSnapshotOptions::default(),
-            )),
-        )
-        .unwrap();
-    });
+    let expected_snapshot = GUARDIAN_REVIEW_REQUEST_LAYOUT_SNAPSHOT
+        .strip_prefix("---\nsource: core/src/guardian_tests.rs\n---\n")
+        .expect("guardian snapshot should keep the expected frontmatter");
+    assert_eq!(snapshot_text, expected_snapshot);
 
     Ok(())
 }
