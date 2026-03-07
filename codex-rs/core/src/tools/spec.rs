@@ -2121,10 +2121,10 @@ pub(crate) fn build_specs(
         builder.register_handler("spawn_agent", multi_agent_handler.clone());
         builder.register_handler("send_input", multi_agent_handler.clone());
         builder.register_handler("resume_agent", multi_agent_handler.clone());
+        builder.register_handler("list_agents", multi_agent_handler.clone());
         if config.agent_watchdog {
             builder.register_handler("compact_parent_context", multi_agent_handler.clone());
         }
-        builder.register_handler("list_agents", multi_agent_handler.clone());
         builder.register_handler("wait", multi_agent_handler.clone());
         builder.register_handler("close_agent", multi_agent_handler);
     }
@@ -2430,6 +2430,7 @@ mod tests {
                 "spawn_agents_on_csv",
             ],
         );
+        assert_contains_tool_names(&tools, &["list_agents"]);
         assert_lacks_tool_name(&tools, "compact_parent_context");
     }
 

@@ -484,6 +484,11 @@ impl AgentControl {
         result
     }
 
+    /// Deliver inbox input to an existing agent thread.
+    ///
+    /// Watchdog helpers rely on this as the mandatory fallback wake-up path when
+    /// a check-in reaches a terminal state without explicitly calling
+    /// `send_input`.
     pub(crate) async fn send_agent_message(
         &self,
         agent_id: ThreadId,
@@ -764,6 +769,11 @@ impl AgentControl {
     }
 
     #[cfg(test)]
+    pub(crate) async fn force_watchdog_due_for_tests(&self, target_thread_id: ThreadId) {
+        self.watchdogs.force_due_for_tests(target_thread_id).await;
+    }
+
+    #[cfg(test)]
     pub(crate) async fn set_watchdog_active_helper_for_tests(
         &self,
         target_thread_id: ThreadId,
@@ -1020,6 +1030,7 @@ mod tests {
     use codex_protocol::config_types::ModeKind;
     use codex_protocol::models::ContentItem;
     use codex_protocol::models::ResponseItem;
+    use codex_protocol::protocol::AgentInboxPayload;
     use codex_protocol::protocol::ErrorEvent;
     use codex_protocol::protocol::EventMsg;
     use codex_protocol::protocol::SessionSource;
@@ -2240,6 +2251,94 @@ mod tests {
             .shutdown_agent(replacement_thread_id)
             .await
             .expect("replacement thread shutdown should submit");
+    }
+
+    #[tokio::test]
+    async fn run_watchdogs_once_wakes_owner_when_helper_exits_without_send_input() {
+        let harness = AgentControlHarness::new().await;
+        let (owner_thread_id, owner_thread) = harness.start_thread().await;
+        let watchdog_handle_id = harness
+            .control
+            .spawn_agent_handle(
+                harness.config.clone(),
+                Some(thread_spawn_source(owner_thread_id)),
+            )
+            .await
+            .expect("watchdog handle should spawn");
+        let helper_thread_id = harness
+            .control
+            .spawn_agent_handle(
+                harness.config.clone(),
+                Some(thread_spawn_source(owner_thread_id)),
+            )
+            .await
+            .expect("watchdog helper should spawn");
+        let removed = harness
+            .control
+            .register_watchdog(WatchdogRegistration {
+                owner_thread_id,
+                target_thread_id: watchdog_handle_id,
+                child_depth: 1,
+                interval_s: 1,
+                prompt: "check in".to_string(),
+                config: harness.config.clone(),
+            })
+            .await
+            .expect("watchdog registration should succeed");
+        assert_eq!(removed, Vec::<RemovedWatchdog>::new());
+        harness
+            .control
+            .set_watchdog_active_helper_for_tests(watchdog_handle_id, helper_thread_id)
+            .await;
+        harness
+            .control
+            .force_watchdog_due_for_tests(watchdog_handle_id)
+            .await;
+
+        let mut helper_status_rx = harness
+            .control
+            .subscribe_status(helper_thread_id)
+            .await
+            .expect("helper status subscription should succeed");
+        let _ = harness
+            .control
+            .shutdown_agent(helper_thread_id)
+            .await
+            .expect("helper shutdown should submit");
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if matches!(helper_status_rx.borrow().clone(), AgentStatus::Shutdown) {
+                    break;
+                }
+                helper_status_rx
+                    .changed()
+                    .await
+                    .expect("helper status should reach shutdown");
+            }
+        })
+        .await
+        .expect("helper should reach shutdown");
+        harness.control.run_watchdogs_once_for_tests().await;
+
+        let history = owner_thread.codex.session.clone_history().await;
+        let payload = history.raw_items().iter().find_map(|item| match item {
+            ResponseItem::FunctionCallOutput { output, .. } => output
+                .text_content()
+                .and_then(|text| serde_json::from_str::<AgentInboxPayload>(text).ok()),
+            _ => None,
+        });
+        let payload = payload.expect("owner should receive fallback agent inbox payload");
+        assert_eq!(payload.sender_thread_id, helper_thread_id);
+        assert!(
+            payload.message.starts_with("Watchdog check-in "),
+            "expected watchdog fallback prefix, got {:?}",
+            payload.message
+        );
+        assert!(
+            payload.message.ends_with("before calling send_input."),
+            "expected watchdog fallback suffix, got {:?}",
+            payload.message
+        );
     }
 
     #[tokio::test]

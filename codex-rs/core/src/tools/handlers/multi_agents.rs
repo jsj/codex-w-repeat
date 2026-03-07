@@ -812,7 +812,7 @@ pub(crate) mod wait {
             .await
         {
             return Err(FunctionCallError::RespondToModel(format!(
-                "wait is not available to watchdog check-in agents. This thread is a one-shot watchdog check-in for owner {owner_thread_id}. Send the result to the parent/root agent with `send_input` (or finish with a final message for fallback delivery) and end your turn."
+                "wait is not available to watchdog check-in agents. This thread is a one-shot watchdog check-in for owner {owner_thread_id}. Send the result to the parent/root agent with `send_input`. If you finish without `send_input`, runtime will forward your conclusory message to the owner as the mandatory fallback wake-up path. Exiting without either `send_input` or a final message is a bug; every watchdog check-in must wake the owner thread."
             )));
         }
 
@@ -1831,6 +1831,31 @@ mod tests {
                 .is_some_and(|nickname| !nickname.is_empty())
         );
         assert_eq!(success, Some(true));
+    }
+
+    #[tokio::test]
+    async fn spawn_agent_rejects_watchdogs_when_feature_disabled() {
+        let (mut session, mut turn) = make_session_and_context().await;
+        let manager = thread_manager();
+        session.services.agent_control = manager.agent_control();
+
+        let mut config = (*turn.config).clone();
+        let _ = config.features.enable(Feature::Collab);
+        turn.config = Arc::new(config);
+
+        let invocation = invocation(
+            Arc::new(session),
+            Arc::new(turn),
+            "spawn_agent",
+            function_payload(json!({"message": "hello", "spawn_mode": "watchdog"})),
+        );
+        let Err(err) = MultiAgentHandler.handle(invocation).await else {
+            panic!("watchdog spawn should fail when feature is disabled");
+        };
+        assert_eq!(
+            err,
+            FunctionCallError::RespondToModel("watchdogs are disabled".to_string())
+        );
     }
 
     #[tokio::test]
