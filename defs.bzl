@@ -80,14 +80,9 @@ def codex_rust_crate(
             `CARGO_BIN_EXE_*` environment variables. These are only needed for binaries from a different crate.
     """
     test_env = {
-        "INSTA_WORKSPACE_ROOT": "codex-rs",
+        "INSTA_WORKSPACE_ROOT": ".",
         "INSTA_SNAPSHOT_PATH": "src",
     }
-
-    cargo_like_package = native.package_name()
-    if cargo_like_package.startswith("codex-rs/"):
-        cargo_like_package = cargo_like_package[len("codex-rs/"):]
-    snapshot_path_remap = "--remap-path-prefix=%s=%s" % (native.package_name(), cargo_like_package)
 
     rustc_env = {
         "BAZEL_PACKAGE": native.package_name(),
@@ -132,9 +127,7 @@ def codex_rust_crate(
             crate = name,
             env = test_env,
             deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
-            # Keep `file!()` paths Cargo-like (`core/src/...`) instead of
-            # Bazel package-prefixed (`codex-rs/core/src/...`) for snapshot parity.
-            rustc_flags = rustc_flags_extra + [snapshot_path_remap],
+            rustc_flags = rustc_flags_extra,
             rustc_env = rustc_env,
             data = test_data_extra,
             tags = test_tags,
@@ -181,11 +174,11 @@ def codex_rust_crate(
             compile_data = native.glob(["tests/**"], allow_empty = True) + integration_compile_data_extra,
             deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
             # Keep `file!()` paths Cargo-like (`core/tests/...`) instead of
-            # Bazel package-prefixed (`codex-rs/core/tests/...`) for snapshot parity.
-            rustc_flags = rustc_flags_extra + [snapshot_path_remap],
+            # Bazel workspace-prefixed (`codex-rs/core/tests/...`) for snapshot parity.
+            rustc_flags = rustc_flags_extra + ["--remap-path-prefix=codex-rs="],
             rustc_env = rustc_env,
             # Important: do not merge `test_env` here. Its unit-test-only
-            # `INSTA_WORKSPACE_ROOT="codex-rs"` can point integration tests at the
+            # `INSTA_WORKSPACE_ROOT="."` can point integration tests at the
             # runfiles cwd and cause false `.snap.new` churn on Linux.
             env = cargo_env,
             tags = test_tags,
