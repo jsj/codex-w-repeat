@@ -71,6 +71,7 @@ pub(crate) struct ToolsConfig {
     pub artifact_tools: bool,
     pub request_user_input: bool,
     pub default_mode_request_user_input: bool,
+    pub scheduler_tools: bool,
     pub experimental_supported_tools: Vec<String>,
     pub agent_jobs_tools: bool,
     pub agent_jobs_worker_tools: bool,
@@ -99,6 +100,7 @@ impl ToolsConfig {
         let include_request_user_input = !matches!(session_source, SessionSource::SubAgent(_));
         let include_default_mode_request_user_input =
             include_request_user_input && features.enabled(Feature::DefaultModeRequestUserInput);
+        let include_scheduler_tools = features.enabled(Feature::Scheduler);
         let include_search_tool = features.enabled(Feature::Apps);
         let include_artifact_tools =
             features.enabled(Feature::Artifact) && codex_artifacts::can_manage_artifact_runtime();
@@ -172,6 +174,7 @@ impl ToolsConfig {
             artifact_tools: include_artifact_tools,
             request_user_input: include_request_user_input,
             default_mode_request_user_input: include_default_mode_request_user_input,
+            scheduler_tools: include_scheduler_tools,
             experimental_supported_tools: model_info.experimental_supported_tools.clone(),
             agent_jobs_tools: include_agent_jobs,
             agent_jobs_worker_tools,
@@ -1100,6 +1103,242 @@ fn create_request_user_input_tool(
     })
 }
 
+fn create_schedule_create_tool() -> ToolSpec {
+    let time_schedule_schema = JsonSchema::Object {
+        properties: BTreeMap::from([
+            (
+                "at".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Run at this RFC3339 timestamp, for example `2026-03-07T15:00:00Z`."
+                            .to_string(),
+                    ),
+                },
+            ),
+            (
+                "in".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Run after this delay, for example `10m`, `90s`, or `1h 30m`.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "every".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Run on this recurring interval, for example `10m`, `1h`, or `1d`."
+                            .to_string(),
+                    ),
+                },
+            ),
+        ]),
+        required: None,
+        additional_properties: Some(false.into()),
+    };
+
+    let poll_schema = JsonSchema::Object {
+        properties: BTreeMap::from([
+            (
+                "every".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Polling interval, for example `10m`, `1h`, or `1d`.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "until".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Condition the repeated task is trying to satisfy.".to_string(),
+                    ),
+                },
+            ),
+            (
+                "timeout".to_string(),
+                JsonSchema::String {
+                    description: Some(
+                        "Optional overall timeout for the poll schedule, for example `6h` or `2d`."
+                            .to_string(),
+                    ),
+                },
+            ),
+            (
+                "max_runs".to_string(),
+                JsonSchema::Number {
+                    description: Some(
+                        "Optional cap on how many poll executions are allowed.".to_string(),
+                    ),
+                },
+            ),
+        ]),
+        required: Some(vec!["every".to_string(), "until".to_string()]),
+        additional_properties: Some(false.into()),
+    };
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: "schedule_create".to_string(),
+        description: "Create a durable scheduled Codex task. Use `trigger: \"time\"` for one-shot or recurring wall-clock schedules, or `trigger: \"poll\"` for repeated checks until a condition is satisfied.".to_string(),
+        strict: false,
+        parameters: JsonSchema::Object {
+            properties: BTreeMap::from([
+                (
+                    "trigger".to_string(),
+                    JsonSchema::String {
+                        description: Some("One of: `time`, `poll`.".to_string()),
+                    },
+                ),
+                (
+                    "prompt".to_string(),
+                    JsonSchema::String {
+                        description: Some("Task prompt to execute when the schedule fires.".to_string()),
+                    },
+                ),
+                ("schedule".to_string(), time_schedule_schema),
+                ("poll".to_string(), poll_schema),
+                (
+                    "concurrency".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "How to handle a due schedule when the thread is busy. One of: `queue`, `skip`, `parallel`."
+                                .to_string(),
+                        ),
+                    },
+                ),
+                (
+                    "misfire_policy".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "How to handle missed schedules after downtime or long delays. One of: `run_once`, `skip`."
+                                .to_string(),
+                        ),
+                    },
+                ),
+                (
+                    "durable".to_string(),
+                    JsonSchema::Boolean {
+                        description: Some(
+                            "Must be true. Schedules are persisted under CODEX_HOME.".to_string(),
+                        ),
+                    },
+                ),
+            ]),
+            required: Some(vec!["trigger".to_string(), "prompt".to_string()]),
+            additional_properties: Some(false.into()),
+        },
+    })
+}
+
+fn create_schedule_list_tool() -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: "schedule_list".to_string(),
+        description: "List durable scheduled Codex tasks for the current thread.".to_string(),
+        strict: false,
+        parameters: JsonSchema::Object {
+            properties: BTreeMap::new(),
+            required: None,
+            additional_properties: Some(false.into()),
+        },
+    })
+}
+
+fn create_schedule_id_tool(name: &str, description: &str) -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: name.to_string(),
+        description: description.to_string(),
+        strict: false,
+        parameters: JsonSchema::Object {
+            properties: BTreeMap::from([(
+                "id".to_string(),
+                JsonSchema::String {
+                    description: Some("Schedule id returned by `schedule_create`.".to_string()),
+                },
+            )]),
+            required: Some(vec!["id".to_string()]),
+            additional_properties: Some(false.into()),
+        },
+    })
+}
+
+fn create_schedule_delete_tool() -> ToolSpec {
+    create_schedule_id_tool(
+        "schedule_delete",
+        "Delete a durable scheduled Codex task by id.",
+    )
+}
+
+fn create_schedule_pause_tool() -> ToolSpec {
+    create_schedule_id_tool(
+        "schedule_pause",
+        "Pause a durable scheduled Codex task by id.",
+    )
+}
+
+fn create_schedule_resume_tool() -> ToolSpec {
+    create_schedule_id_tool(
+        "schedule_resume",
+        "Resume a paused durable scheduled Codex task by id.",
+    )
+}
+
+fn create_schedule_report_tool() -> ToolSpec {
+    ToolSpec::Function(ResponsesApiTool {
+        name: "schedule_report".to_string(),
+        description: "Record the result of a poll schedule execution. Scheduled poll runs should call this exactly once before finishing.".to_string(),
+        strict: false,
+        parameters: JsonSchema::Object {
+            properties: BTreeMap::from([
+                (
+                    "thread_id".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "Owner thread id for the schedule being reported.".to_string(),
+                        ),
+                    },
+                ),
+                (
+                    "id".to_string(),
+                    JsonSchema::String {
+                        description: Some("Schedule id returned by `schedule_create`.".to_string()),
+                    },
+                ),
+                (
+                    "run_id".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "Run id supplied in the scheduled execution instructions.".to_string(),
+                        ),
+                    },
+                ),
+                (
+                    "status".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "One of: `continue`, `completed`, `failed`.".to_string(),
+                        ),
+                    },
+                ),
+                (
+                    "summary".to_string(),
+                    JsonSchema::String {
+                        description: Some(
+                            "Optional one-line summary of what this execution observed.".to_string(),
+                        ),
+                    },
+                ),
+            ]),
+            required: Some(vec![
+                "thread_id".to_string(),
+                "id".to_string(),
+                "run_id".to_string(),
+                "status".to_string(),
+            ]),
+            additional_properties: Some(false.into()),
+        },
+    })
+}
+
 fn create_close_agent_tool() -> ToolSpec {
     let mut properties = BTreeMap::new();
     properties.insert(
@@ -1820,6 +2059,7 @@ pub(crate) fn build_specs(
     use crate::tools::handlers::PlanHandler;
     use crate::tools::handlers::ReadFileHandler;
     use crate::tools::handlers::RequestUserInputHandler;
+    use crate::tools::handlers::ScheduleHandler;
     use crate::tools::handlers::SearchToolBm25Handler;
     use crate::tools::handlers::ShellCommandHandler;
     use crate::tools::handlers::ShellHandler;
@@ -1842,6 +2082,7 @@ pub(crate) fn build_specs(
     let request_user_input_handler = Arc::new(RequestUserInputHandler {
         default_mode_request_user_input: config.default_mode_request_user_input,
     });
+    let schedule_handler = Arc::new(ScheduleHandler);
     let search_tool_handler = Arc::new(SearchToolBm25Handler);
     let js_repl_handler = Arc::new(JsReplHandler);
     let js_repl_reset_handler = Arc::new(JsReplResetHandler);
@@ -1910,6 +2151,29 @@ pub(crate) fn build_specs(
             default_mode_request_user_input: config.default_mode_request_user_input,
         }));
         builder.register_handler("request_user_input", request_user_input_handler);
+    }
+
+    if config.scheduler_tools {
+        for spec in [
+            create_schedule_create_tool(),
+            create_schedule_list_tool(),
+            create_schedule_delete_tool(),
+            create_schedule_pause_tool(),
+            create_schedule_resume_tool(),
+            create_schedule_report_tool(),
+        ] {
+            builder.push_spec(spec);
+        }
+        for tool_name in [
+            "schedule_create",
+            "schedule_list",
+            "schedule_delete",
+            "schedule_pause",
+            "schedule_resume",
+            "schedule_report",
+        ] {
+            builder.register_handler(tool_name, schedule_handler.clone());
+        }
     }
 
     if config.search_tool
@@ -2441,6 +2705,54 @@ mod tests {
         assert!(
             !tools.iter().any(|t| t.spec.name() == "get_memory"),
             "get_memory should be disabled when memory_tool feature is off"
+        );
+    }
+
+    #[test]
+    fn scheduler_tools_require_feature_flag() {
+        let config = test_config();
+        let model_info =
+            ModelsManager::construct_model_info_offline_for_tests("gpt-5-codex", &config);
+        let features = Features::with_defaults();
+        let tools_config = ToolsConfig::new(&ToolsConfigParams {
+            model_info: &model_info,
+            features: &features,
+            web_search_mode: Some(WebSearchMode::Cached),
+            session_source: SessionSource::Cli,
+        });
+        let (tools, _) = build_specs(&tools_config, None, None, &[]).build();
+        assert_lacks_tool_name(&tools, "schedule_create");
+        assert_lacks_tool_name(&tools, "schedule_list");
+        assert_lacks_tool_name(&tools, "schedule_delete");
+        assert_lacks_tool_name(&tools, "schedule_pause");
+        assert_lacks_tool_name(&tools, "schedule_resume");
+        assert_lacks_tool_name(&tools, "schedule_report");
+    }
+
+    #[test]
+    fn scheduler_tools_are_added_when_feature_is_enabled() {
+        let config = test_config();
+        let model_info =
+            ModelsManager::construct_model_info_offline_for_tests("gpt-5-codex", &config);
+        let mut features = Features::with_defaults();
+        features.enable(Feature::Scheduler);
+        let tools_config = ToolsConfig::new(&ToolsConfigParams {
+            model_info: &model_info,
+            features: &features,
+            web_search_mode: Some(WebSearchMode::Cached),
+            session_source: SessionSource::Cli,
+        });
+        let (tools, _) = build_specs(&tools_config, None, None, &[]).build();
+        assert_contains_tool_names(
+            &tools,
+            &[
+                "schedule_create",
+                "schedule_list",
+                "schedule_delete",
+                "schedule_pause",
+                "schedule_resume",
+                "schedule_report",
+            ],
         );
     }
 

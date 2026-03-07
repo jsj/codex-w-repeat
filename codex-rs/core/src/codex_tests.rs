@@ -2093,6 +2093,11 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
+        scheduler: Arc::new(crate::scheduler::SchedulerService::new(
+            false,
+            config.codex_home.clone(),
+            conversation_id,
+        )),
         model_client: ModelClient::new(
             Some(auth_manager.clone()),
             conversation_id,
@@ -2500,6 +2505,11 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
+        scheduler: Arc::new(crate::scheduler::SchedulerService::new(
+            false,
+            config.codex_home.clone(),
+            conversation_id,
+        )),
         model_client: ModelClient::new(
             Some(Arc::clone(&auth_manager)),
             conversation_id,

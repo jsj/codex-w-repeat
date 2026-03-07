@@ -256,6 +256,8 @@ use crate::rollout::RolloutRecorderParams;
 use crate::rollout::map_session_init_error;
 use crate::rollout::metadata;
 use crate::rollout::policy::EventPersistenceMode;
+use crate::scheduler::ScheduledTurnConfig;
+use crate::scheduler::SchedulerService;
 use crate::shell;
 use crate::shell_snapshot::ShellSnapshot;
 use crate::skills::SkillError;
@@ -1570,6 +1572,11 @@ impl Session {
             network_proxy,
             network_approval: Arc::clone(&network_approval),
             state_db: state_db_ctx.clone(),
+            scheduler: Arc::new(SchedulerService::new(
+                config.features.enabled(Feature::Scheduler),
+                config.codex_home.clone(),
+                conversation_id,
+            )),
             model_client: ModelClient::new(
                 Some(Arc::clone(&auth_manager)),
                 conversation_id,
@@ -1604,6 +1611,7 @@ impl Session {
             let mut guard = network_policy_decider_session.write().await;
             *guard = Arc::downgrade(&sess);
         }
+        sess.services.scheduler.start(Arc::clone(&sess));
         // Dispatch the SessionConfiguredEvent first and then report any errors.
         // If resuming, include converted initial messages in the payload so UIs can render them immediately.
         let initial_messages = initial_history.get_event_msgs();
@@ -2400,6 +2408,84 @@ impl Session {
         };
         self.new_turn_from_configuration(sub_id, session_configuration, None, false)
             .await
+    }
+
+    pub(crate) async fn new_scheduled_turn_with_sub_id(
+        &self,
+        sub_id: String,
+        scheduled: &ScheduledTurnConfig,
+    ) -> Result<Arc<TurnContext>, String> {
+        let (session_configuration, previous_cwd, codex_home, session_source) = {
+            let state = self.state.lock().await;
+            (
+                state.session_configuration.clone(),
+                state.session_configuration.cwd.clone(),
+                state.session_configuration.codex_home.clone(),
+                state.session_configuration.session_source.clone(),
+            )
+        };
+        let updates = SessionSettingsUpdate {
+            cwd: Some(scheduled.cwd.clone()),
+            approval_policy: Some(scheduled.approval_policy),
+            sandbox_policy: Some(scheduled.sandbox_policy.clone()),
+            windows_sandbox_level: None,
+            collaboration_mode: Some(scheduled.collaboration_mode.clone()),
+            reasoning_summary: Some(scheduled.reasoning_summary),
+            service_tier: Some(scheduled.service_tier),
+            final_output_json_schema: None,
+            personality: scheduled.personality,
+            app_server_client_name: None,
+        };
+        let session_configuration = session_configuration
+            .apply(&updates)
+            .map_err(|err| err.to_string())?;
+
+        self.maybe_refresh_shell_snapshot_for_cwd(
+            &previous_cwd,
+            &session_configuration.cwd,
+            &codex_home,
+            &session_source,
+        );
+
+        Ok(self
+            .new_turn_from_configuration(sub_id, session_configuration, None, false)
+            .await)
+    }
+
+    pub(crate) async fn build_scheduled_spawn_config(
+        &self,
+        scheduled: &ScheduledTurnConfig,
+    ) -> Result<Config, String> {
+        let session_configuration = {
+            let state = self.state.lock().await;
+            state.session_configuration.clone()
+        };
+
+        let mut config = Self::build_per_turn_config(&session_configuration);
+        config.base_instructions = Some(self.get_base_instructions().await.text);
+        config.model = Some(scheduled.collaboration_mode.model().to_string());
+        config.model_provider = session_configuration.provider.clone();
+        config.model_reasoning_effort = scheduled.collaboration_mode.reasoning_effort();
+        config.model_reasoning_summary = Some(scheduled.reasoning_summary);
+        config.developer_instructions = scheduled
+            .collaboration_mode
+            .settings
+            .developer_instructions
+            .clone();
+        config.service_tier = scheduled.service_tier;
+        config.personality = scheduled.personality;
+        config.cwd = scheduled.cwd.clone();
+        config
+            .permissions
+            .approval_policy
+            .set(scheduled.approval_policy)
+            .map_err(|err| format!("approval_policy is invalid: {err}"))?;
+        config
+            .permissions
+            .sandbox_policy
+            .set(scheduled.sandbox_policy.clone())
+            .map_err(|err| format!("sandbox_policy is invalid: {err}"))?;
+        Ok(config)
     }
 
     async fn build_settings_update_items(
@@ -4828,6 +4914,14 @@ mod handlers {
 
     pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
         sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
+        if let Err(err) = sess
+            .services
+            .scheduler
+            .shutdown_owned_thread(&sess.services.agent_control)
+            .await
+        {
+            warn!("failed to shutdown scheduler service: {err}");
+        }
         let _ = sess.conversation.shutdown().await;
         sess.services
             .unified_exec_manager

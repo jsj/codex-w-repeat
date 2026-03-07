@@ -36,6 +36,29 @@ Codex stores the SQLite-backed state DB under `sqlite_home` (config key) or the
 `CODEX_SQLITE_HOME` environment variable. When unset, WorkspaceWrite sandbox
 sessions default to a temp directory; other modes default to `CODEX_HOME`.
 
+## Scheduler
+
+The experimental scheduler runtime is guarded by the `scheduler` feature flag:
+
+```toml
+[features]
+scheduler = true
+```
+
+When enabled, Codex exposes durable scheduling tools for delayed, recurring, and
+polling work. Schedules are persisted under `CODEX_HOME/schedules/<thread-id>.json`.
+Time schedules support `at`, `in`, and `every`; poll schedules support `every`,
+`until`, plus optional `timeout` and `max_runs`.
+
+The bundled system skill `$repeat` is the intended user surface for this runtime.
+Examples:
+
+- `$repeat 10m check whether the deploy finished`
+- `remind me at 3pm to push the release branch`
+- `check the deploy every 5 minutes until it is healthy`
+
+For the user-facing workflow, examples, and tool overview, see [Run prompts on a schedule](scheduling.md).
+
 ## Notices
 
 Codex stores "do not show again" flags for some UI prompts under the `[notice]` table.

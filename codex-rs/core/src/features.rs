@@ -147,6 +147,8 @@ pub enum Feature {
     Steer,
     /// Allow request_user_input in Default collaboration mode.
     DefaultModeRequestUserInput,
+    /// Enable persistent scheduled task tools and the backing scheduler runtime.
+    Scheduler,
     /// Enable guardian subagent approvals.
     GuardianApproval,
     /// Enable collaboration modes (Plan, Default).
@@ -695,6 +697,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::DefaultModeRequestUserInput,
         key: "default_mode_request_user_input",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::Scheduler,
+        key: "scheduler",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

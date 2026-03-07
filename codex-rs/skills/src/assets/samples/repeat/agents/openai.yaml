@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repeat"
+  short_description: "Schedule reminders, loops, and polling tasks"
+  default_prompt: "Use $repeat to remind me at 3pm to push the release branch."
