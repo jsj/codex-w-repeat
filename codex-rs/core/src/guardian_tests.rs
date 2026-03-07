@@ -346,7 +346,8 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
     );
     let expected_snapshot = GUARDIAN_REVIEW_REQUEST_LAYOUT_SNAPSHOT
         .strip_prefix("---\nsource: core/src/guardian_tests.rs\n---\n")
-        .expect("guardian snapshot should keep the expected frontmatter");
+        .expect("guardian snapshot should keep the expected frontmatter")
+        .trim_end_matches('\n');
     assert_eq!(snapshot_text, expected_snapshot);
 
     Ok(())
