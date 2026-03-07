@@ -906,7 +906,7 @@ impl ApprovalDecisionActor {
     fn subject(self) -> &'static str {
         match self {
             Self::User => "You ",
-            Self::Guardian => "Guardian ",
+            Self::Guardian => "Auto-reviewer ",
         }
     }
 }
