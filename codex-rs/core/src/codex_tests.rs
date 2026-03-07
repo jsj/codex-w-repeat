@@ -1,4 +1,5 @@
 use super::*;
+use crate::AppsMcpCookieStore;
 use crate::CodexAuth;
 use crate::config::ConfigBuilder;
 use crate::config::test_config;
@@ -1955,6 +1956,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         session_configuration,
         Arc::clone(&config),
         auth_manager,
+        Arc::new(AppsMcpCookieStore::default()),
         models_manager,
         ExecPolicyManager::default(),
         tx_event,
@@ -2063,6 +2065,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             ),
         )),
         mcp_startup_cancellation_token: Mutex::new(CancellationToken::new()),
+        apps_mcp_cookie_store: Arc::new(AppsMcpCookieStore::default()),
         unified_exec_manager: UnifiedExecProcessManager::new(
             config.background_terminal_max_timeout,
         ),
@@ -2470,6 +2473,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
             ),
         )),
         mcp_startup_cancellation_token: Mutex::new(CancellationToken::new()),
+        apps_mcp_cookie_store: Arc::new(AppsMcpCookieStore::default()),
         unified_exec_manager: UnifiedExecProcessManager::new(
             config.background_terminal_max_timeout,
         ),

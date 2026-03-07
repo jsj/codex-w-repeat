@@ -1,4 +1,5 @@
 use super::*;
+use crate::AppsMcpCookieStore;
 use crate::config_loader::ConfigLayerEntry;
 use crate::config_loader::ConfigRequirements;
 use crate::config_loader::ConfigRequirementsToml;
@@ -236,6 +237,7 @@ async fn guardian_subagent_does_not_inherit_parent_exec_policy_rules() {
     let CodexSpawnOk { codex, .. } = Codex::spawn(
         config,
         auth_manager,
+        Arc::new(AppsMcpCookieStore::default()),
         models_manager,
         skills_manager,
         plugins_manager,
