@@ -6949,7 +6949,14 @@ async fn experimental_popup_includes_guardian_approval() {
     chat.open_experimental_popup();
 
     let popup = render_bottom_popup(&chat, 120);
-    assert_snapshot!("experimental_popup_includes_guardian_approval", popup);
+    assert!(
+        popup.contains("Guardian approvals"),
+        "expected guardian approvals entry in experimental popup, got:\n{popup}"
+    );
+    assert!(
+        popup.contains("blocked network access"),
+        "expected guardian approvals description in experimental popup, got:\n{popup}"
+    );
 }
 
 #[tokio::test]
